@@ -1,74 +1,81 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import joblib
+from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-# Load data
-@st.cache_data
+# Caching data loading and model loading to avoid re-loading each time
+@st.cache
 def load_data():
-    return pd.read_csv("rfm_data.csv")
+    # Simulate loading a large dataset (replace with actual file path)
+    return pd.read_csv('large_data.csv')
 
+@st.cache
+def load_model():
+    # Load pre-trained KMeans model
+    return joblib.load('rfm_kmeans_model.pkl')
+
+# Caching data preprocessing
+@st.cache
+def preprocess_data(df):
+    # Example preprocessing: Standardizing the data
+    scaler = StandardScaler()
+    df_scaled = scaler.fit_transform(df[['Quantity', 'UnitPrice']])
+    return df_scaled
+
+# Load data and model
 df = load_data()
+model = load_model()
 
-# ---- Sidebar ----
-st.sidebar.title("📊 Customer Segmentation")
-st.sidebar.markdown("Built by *Ibrahim Ali*")
-st.sidebar.image("assets/logo.png", use_column_width=True)
+# Preprocess the data
+df_scaled = preprocess_data(df)
 
-# ---- Header ----
-st.title("🧠 Customer Segmentation Dashboard")
-st.markdown("### Using RFM + KMeans Clustering")
-st.markdown("This dashboard helps you explore customer segments based on behavioral patterns.")
+# Apply KMeans clustering only if not already done
+if 'Cluster' not in df.columns:
+    kmeans = KMeans(n_clusters=4, random_state=42)
+    df['Cluster'] = kmeans.fit_predict(df_scaled)
 
-# ---- KPIs ----
-total_customers = df['CustomerID'].nunique()
-num_segments = df['Cluster'].nunique()
-avg_recency = df['Recency'].mean()
-avg_frequency = df['Frequency'].mean()
-avg_monetary = df['Monetary'].mean()
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Customers", total_customers)
-col2.metric("Segments", num_segments)
-col3.metric("Avg. Recency", f"{avg_recency:.0f}")
-col4.metric("Avg. Frequency", f"{avg_frequency:.0f}")
-
-# ---- Visualizations ----
-st.subheader("📌 Segment Distribution")
-seg_counts = df['Cluster'].value_counts().sort_index()
-st.bar_chart(seg_counts)
-
-# ---- PCA Visualization ----
-st.subheader("🎯 PCA Cluster Visualization")
-
+# Apply PCA for visualization (reduce to 2D)
 pca = PCA(n_components=2)
-pca_result = pca.fit_transform(df[['Recency', 'Frequency', 'Monetary']])
-df['PCA1'], df['PCA2'] = pca_result[:, 0], pca_result[:, 1]
+rfm_pca = pca.fit_transform(df_scaled)
+df['PCA1'] = rfm_pca[:, 0]
+df['PCA2'] = rfm_pca[:, 1]
 
-fig, ax = plt.subplots(figsize=(10, 6))
-sns.scatterplot(data=df, x='PCA1', y='PCA2', hue='Cluster', palette='Set2', s=100, ax=ax)
-plt.title("Customer Segments (2D Projection)")
-st.pyplot(fig)
+# Streamlit app interface
+st.title('Customer Segmentation Dashboard')
 
-# ---- Segment Statistics ----
-st.subheader("📋 Segment Summary Stats")
-seg_stats = df.groupby('Cluster')[['Recency', 'Frequency', 'Monetary']].mean().round(2)
-st.dataframe(seg_stats)
+# Dropdown for selecting the number of clusters
+num_clusters = st.selectbox("Select number of clusters", [2, 3, 4, 5], index=2)
 
-# ---- Country & Products Insights ----
-st.subheader("🌍 Top Countries by Transactions")
-if "Country" in df.columns:
-    country_counts = df['Country'].value_counts().head(10)
-    st.bar_chart(country_counts)
+# Update the model based on the selected number of clusters
+kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+df['Cluster'] = kmeans.fit_predict(df_scaled)
 
-st.subheader("📦 Top Products (Optional)")
-if "Description" in df.columns:
-    product_counts = df['Description'].value_counts().head(10)
-    st.write(product_counts)
+# Display cluster summary
+cluster_summary = df.groupby('Cluster').mean().round(2)
+st.write("Cluster Summary", cluster_summary)
 
-# ---- Download Results ----
-st.subheader("📥 Download Segmented Data")
-csv = df.to_csv(index=False).encode('utf-8')
-st.download_button("Download CSV", csv, "segmented_customers.csv", "text/csv")
+# Visualize the customer segments
+st.subheader('Customer Segments Visualization using PCA')
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=df, x='PCA1', y='PCA2', hue='Cluster', palette='Set2', s=70, alpha=0.8)
+plt.title('Customer Segments Visualization using PCA', fontsize=14)
+plt.xlabel('Principal Component 1')
+plt.ylabel('Principal Component 2')
+plt.grid(True)
+plt.tight_layout()
+st.pyplot()
+
+# Download CSV button
+st.subheader("Download Segmented Data")
+csv_data = df.to_csv(index=False).encode('utf-8')
+st.download_button(label="Download CSV", data=csv_data, file_name="segmented_data.csv")
+
+# Displaying a sample of the data
+st.subheader("Sample Data")
+st.write(df.head())
 
